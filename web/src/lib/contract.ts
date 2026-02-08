@@ -1,8 +1,9 @@
 import {
   fetchCallReadOnlyFunction,
-  cvToJSON,
+  cvToValue,
   type ClarityValue,
 } from "@stacks/transactions";
+
 import { getNetwork, contractAddress, contractName } from "@/config";
 
 const DUMMY_SENDER = "SP2C2YFP12AJZB4MABJBAJ55XECVS7E4PMMZ89YZR";
@@ -10,11 +11,10 @@ const DUMMY_SENDER = "SP2C2YFP12AJZB4MABJBAJ55XECVS7E4PMMZ89YZR";
 export type TowerState = {
   height: string;
   lastStacker: string | null;
-  lastStackedAt: string | null;
 };
 
 function parseOkValue(cv: ClarityValue): unknown {
-  const json = cvToJSON(cv) as { type: string; value?: unknown };
+  const json = cvToValue(cv) as { type: string; value?: unknown };
   if (json.type === "response" && json.value) {
     const v = json.value as { type: string; value?: unknown };
     if (v.type === "ok" && v.value !== undefined) return v.value;
@@ -24,8 +24,14 @@ function parseOkValue(cv: ClarityValue): unknown {
 
 function parseUint(cv: ClarityValue): string | null {
   const inner = parseOkValue(cv);
-  if (inner && typeof inner === "object" && "type" in inner && (inner as { type: string }).type === "uint") {
-    return String((inner as { value: string }).value ?? "0");
+  if (
+    inner &&
+    typeof inner === "object" &&
+    "type" in inner &&
+    (inner as { type: string }).type === "uint"
+  ) {
+    const obj = inner as { value?: string | number };
+    return String(obj.value ?? "0");
   }
   return null;
 }
@@ -33,50 +39,80 @@ function parseUint(cv: ClarityValue): string | null {
 function parseOptionalPrincipal(cv: ClarityValue): string | null {
   const inner = parseOkValue(cv);
   if (!inner || typeof inner !== "object") return null;
-  const obj = inner as { type: string; value?: { type: string; address?: string } };
-  if (obj.type === "optional" && obj.value) {
-    if (obj.value.type === "principal" && obj.value.address)
-      return obj.value.address;
+
+  const obj = inner as { type: string; value?: any };
+
+  // optional principal
+  if (obj.type === "optional") {
+    if (!obj.value) return null;
+
+    const val = obj.value as { type: string; value?: any };
+    if (val.type === "principal" && val.value?.address)
+      return String(val.value.address);
+
     return null;
   }
-  if (obj.type === "principal" && "address" in obj)
-    return (obj as { address: string }).address;
+
+  // direct principal
+  if (obj.type === "principal" && obj.value?.address) {
+    return String(obj.value.address);
+  }
+
   return null;
 }
 
 export async function fetchTowerState(): Promise<TowerState> {
-  const network = getNetwork();
+  try {
+    const network = "mainnet" as const;
 
-  const [heightCv, lastStackerCv, lastStackedAtCv] = await Promise.all([
-    fetchCallReadOnlyFunction({
+    const heightCv = await fetchCallReadOnlyFunction({
       network,
       contractAddress,
       contractName,
       functionName: "get-height",
       functionArgs: [],
-      senderAddress: DUMMY_SENDER,
-    }),
-    fetchCallReadOnlyFunction({
+      senderAddress: contractAddress,
+    });
+
+    const lastStackerCv = await fetchCallReadOnlyFunction({
       network,
       contractAddress,
       contractName,
       functionName: "get-last-stacker",
       functionArgs: [],
-      senderAddress: DUMMY_SENDER,
-    }),
-    fetchCallReadOnlyFunction({
-      network,
-      contractAddress,
-      contractName,
-      functionName: "get-last-stacked-at",
-      functionArgs: [],
-      senderAddress: DUMMY_SENDER,
-    }),
-  ]);
+      senderAddress: contractAddress,
+    });
 
-  return {
-    height: parseUint(heightCv) ?? "0",
-    lastStacker: parseOptionalPrincipal(lastStackerCv),
-    lastStackedAt: parseUint(lastStackedAtCv),
-  };
+    const heightVal = cvToValue(heightCv) as any;
+    const lastStackerVal = cvToValue(lastStackerCv) as any;
+
+    const height = String(heightVal?.value ?? "0");
+
+    let lastStacker: string | null = null;
+
+    // Handle optional principal in different shapes
+    if (typeof lastStackerVal === "string") {
+      lastStacker = lastStackerVal;
+    } else if (lastStackerVal?.type === "some") {
+      lastStacker = String(lastStackerVal.value);
+    } else if (lastStackerVal?.value?.type === "some") {
+      lastStacker = String(lastStackerVal.value.value);
+    } else if (typeof lastStackerVal?.value === "string") {
+      lastStacker = String(lastStackerVal.value);
+    } else if (typeof lastStackerVal?.value?.value === "string") {
+      lastStacker = String(lastStackerVal.value.value);
+    }
+
+    return {
+      height,
+      lastStacker,
+    };
+  } catch (e) {
+    console.error("fetchTowerState failed:", e);
+    return {
+      height: "0",
+      lastStacker: null,
+    };
+  }
 }
+
