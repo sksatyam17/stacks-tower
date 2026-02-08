@@ -1,3 +1,13 @@
+## Live Demo
+https://stacks-tower.vercel.app/
+
+## Contract Address
+SP2HV0WHZAQS2S3FRNMP0GP2R28T8AB64N8PQANM8.stacks-tower
+
+## Stacks explorer link
+You can directly call the stack function on explorer: 
+https://explorer.hiro.so/txid/SP2HV0WHZAQS2S3FRNMP0GP2R28T8AB64N8PQANM8.stacks-tower?chain=mainnet&tab=availableFunctions
+
 # Stacks Tower
 
 A simple Stacks dApp: connect your Hiro wallet and press a button to add +1 to a public onchain tower.
